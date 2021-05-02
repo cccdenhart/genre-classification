@@ -112,6 +112,7 @@ testpath==0.4.4
 threadpoolctl==2.1.0
 torch==1.8.1
 torchmetrics==0.2.0
+torchsummary==1.5.1
 tornado==6.1
 tqdm==4.59.0
 traitlets==5.0.5
