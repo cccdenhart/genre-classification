@@ -11,6 +11,7 @@ from src.genre_embedder import GenreEmbedder
 DATA_DIR = '/home/denhart.c/data'
 PROJECT_DIR = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 CACHE_DIR = os.path.join(PROJECT_DIR, 'cache')
+SAMPLE_RATE = 22050
 
 if not os.path.exists(CACHE_DIR):
 	os.mkdir(CACHE_DIR)
@@ -18,10 +19,13 @@ if not os.path.exists(CACHE_DIR):
 
 def audio_to_sequence(
 	x: np.ndarray,
+	use_mel: bool = True,
 	to_db: bool = False,
 	time_seq: bool = False
 ) -> np.ndarray:
 	'''Convert an audio wave to a sequence representation.'''
+	if use_mel:
+		return librosa.features.mel_spectogram(x)
 	amplitudes = abs(librosa.stft(x))
 	if to_db:
 		amplitudes = librosa.amplitude_to_db(time_amplitudes)
@@ -44,29 +48,32 @@ def embed_X(X: List[np.ndarray], embed_fn: Callable[[np.ndarray], np.ndarray]) -
 
 
 def read_data(subset_pct: float = 1.0) -> Tuple[List[str], List[str]]:
-    '''Return audio filepaths and associated genre labels'''
-    # extract all genre names
-    genre_dir = os.path.join(DATA_DIR, 'genres')
-    genre_names = [fname for fname in os.listdir(genre_dir)
-                   if os.path.isdir(os.path.join(genre_dir, fname))]
+	'''Return audio filepaths and associated genre labels'''
+	# extract all genre names
+	genre_dir = os.path.join(DATA_DIR, 'genres')
+	genre_names = [fname for fname in os.listdir(genre_dir)
+				   if os.path.isdir(os.path.join(genre_dir, fname))]
 
-    # collect filepaths along with their associated genres
-    filepaths = []
-    labels = []
-    for genre in genre_names:
-        genre_files = os.listdir(os.path.join(DATA_DIR, 'genres', genre))
-        genre_paths = [os.path.join(DATA_DIR, 'genres', genre, fname) for fname in genre_files]
-        filepaths += genre_paths
-        labels += ([genre] * len(genre_files))
+	# collect filepaths along with their associated genres
+	filepaths = []
+	labels = []
+	for genre in genre_names:
+		genre_files = os.listdir(os.path.join(DATA_DIR, 'genres', genre))
+		genre_paths = [os.path.join(DATA_DIR, 'genres', genre, fname) for fname in genre_files]
+		filepaths += genre_paths
+		labels += ([genre] * len(genre_files))
 
-    # select random subset of files
-    n_total_files = len(filepaths)
-    n_subset_files = int(subset_pct * n_total_files)
-    random_rows = np.random.choice(range(n_total_files), n_subset_files, replace=False)
-    filepaths_subset = [filepaths[i] for i in random_rows]
-    labels_subset = [labels[i] for i in random_rows]
+	# select random subset of files
+	if subset_pct < 1.0:
+		n_total_files = len(filepaths)
+		n_subset_files = int(subset_pct * n_total_files)
+		random_rows = np.random.choice(range(n_total_files), n_subset_files, replace=False)
+		filepaths_subset = [filepaths[i] for i in random_rows]
+		labels_subset = [labels[i] for i in random_rows]
 
-    return filepaths_subset, labels_subset
+		return filepaths_subset, labels_subset
+
+	return filepaths, labels
 
 
 def prepare_data(subset_pct: float = 1.0) -> Tuple[np.ndarray, np.ndarray, List[int]]:
@@ -74,7 +81,7 @@ def prepare_data(subset_pct: float = 1.0) -> Tuple[np.ndarray, np.ndarray, List[
 	filepaths, labels = read_data(subset_pct)
 
 	y_encoder = LabelEncoder()
-	y = torch.tensor(y_encoder.fit_transform(labels))
+	y = y_encoder.fit_transform(labels)
 	y_classes = y_encoder.classes_
 
 	X = [librosa.load(fpath)[0] for fpath in filepaths]
@@ -113,6 +120,7 @@ def split_data(
 	else:
 		test_rows = [i for i in range(n_total_rows) if i not in train_rows]
 
+
 	out_data = [
         X[train_rows],
         y[train_rows],
@@ -147,7 +155,7 @@ def get_feature_names() -> List[str]:
 	return derived_feature_names
 
 
-def derived_features(x: np.ndarray, sr: int) -> np.ndarray:
+def derived_features(x: np.ndarray, sr: int = SAMPLE_RATE) -> np.ndarray:
 	'''Build derived features using librosa.'''
 	chroma_stft = librosa.feature.chroma_stft(x, sr)
 	spec_cent = librosa.feature.spectral_centroid(x, sr)
@@ -176,14 +184,15 @@ def derived_features(x: np.ndarray, sr: int) -> np.ndarray:
 	return full_stack
 
 
-def build_features(X: np.array, use_cache: bool = True, cache: bool = True) -> Tuple[np.array, torch.tensor]:
+def build_features(X: np.array, y: np.array, use_cache: bool = True, cache: bool = True) -> Tuple[np.array, torch.tensor]:
 	'''Build derived and sequential features.'''
 	if use_cache:
 		derived_X = pd.read_csv(os.path.join(CACHE_DIR, 'derived_df.csv')).values
 		seq_X = torch.load(os.path.join(CACHE_DIR, 'sequence_X.pt'))
+		y = pd.read_csv(os.path.join(CACHE_DIR, 'y.csv'), header=None).squeeze().values
 	else:
 		# load derived features
-		emb_X = embed_X(X, lambda x: derived_features(x, sr))
+		emb_X = embed_X(X, lambda x: derived_features(x))
 		derived_X = torch.tensor(np.stack([x for x in emb_X])).float()
 
 		# load sequential features
@@ -193,12 +202,14 @@ def build_features(X: np.array, use_cache: bool = True, cache: bool = True) -> T
 
 		if cache:
 			derived_df = pd.DataFrame(derived_X.numpy())
-			derived_df.columns = derived_feature_names
+			derived_df.columns = get_feature_names()
 			derived_df.to_csv(os.path.join(CACHE_DIR, 'derived_df.csv'), index=False)
 
 			torch.save(seq_X, os.path.join(CACHE_DIR, 'sequence_X.pt'))
 
-	return derived_X, seq_X
+			pd.DataFrame(y).to_csv(os.path.join(CACHE_DIR, 'y.csv'), index=False)
+
+	return derived_X, seq_X, y
 
 
 def assign_embeddings(X: torch.tensor, y: torch.tensor, embedder: GenreEmbedder) -> Dict[int, torch.tensor]:

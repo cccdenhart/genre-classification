@@ -23,7 +23,7 @@ def train_baseline() -> Tuple[RandomForestClassifier, svm.SVC]:
 	'''Train baseline models.'''
 	print('Loading data .....')
 	X, y, y_classes = prepare_data()
-	derived_X, _ = build_features(X)
+	derived_X, _, y = build_features(X, y)
 	X_train, y_train, X_test, y_test = split_data(derived_X, y, row_cache_name='baseline')
 
 	print('Training random forest .....')

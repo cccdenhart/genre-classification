@@ -22,13 +22,13 @@ class GenreEmbedder(pl.LightningModule):
 		super().__init__()
 
 		self.cnn = nn.Sequential(
-			nn.Conv2d(1, 1, kernel_size=2, stride=1, padding=1),
+			nn.Conv2d(1, 1, kernel_size=3, stride=1, padding=1),
 			# nn.BatchNorm2d(1),
 			# nn.ReLU(inplace=True),
 			# nn.MaxPool2d(kernel_size=2, stride=1),
 		)
 		self.in_layer = nn.Linear(52, 48)
-		self.embedding = nn.Linear(48, embedding_size)
+		self.embedding = nn.Linear(52, embedding_size)
 		self.activation = nn.ReLU()
 		self.dropout = nn.Dropout(0.1)
 		self.out = nn.Linear(embedding_size, n_class)
@@ -41,8 +41,8 @@ class GenreEmbedder(pl.LightningModule):
 
 		b, f = x.shape
 		x_reshape = x.reshape(b, 1, 4, 13)
-		# conv_layer = self.activation(self.cnn(x_reshape)).reshape(b, 52)
-		embedding = self.activation(self.embedding(self.activation(self.in_layer(x))))
+		conv_layer = self.activation(self.cnn(x_reshape)).reshape(b, 52)
+		embedding = self.activation(self.embedding(conv_layer))
 		out = self.out(embedding)
 		return out, embedding
 
