@@ -25,7 +25,7 @@ def audio_to_sequence(
 ) -> np.ndarray:
 	'''Convert an audio wave to a sequence representation.'''
 	if use_mel:
-		return librosa.features.mel_spectogram(x)
+		return librosa.feature.melspectrogram(x)
 	amplitudes = abs(librosa.stft(x))
 	if to_db:
 		amplitudes = librosa.amplitude_to_db(time_amplitudes)
